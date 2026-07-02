@@ -1,12 +1,19 @@
 import sqlite3
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_PATH = os.environ.get("DB_PATH", "blc.db")
 HISTORY_LIMIT = 10
 NOTIFY_AFTER = 15
 DEFAULT_DAILY_LIMIT = int(os.environ.get("DAILY_LIMIT", "100"))
+
+# Если папка для БД ещё не существует (например, Volume в Railway не смонтирован
+# или DB_PATH указывает на вложенный путь) — создаём её, чтобы не падать с
+# sqlite3.OperationalError: unable to open database file.
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir:
+    os.makedirs(_db_dir, exist_ok=True)
 
 
 def get_conn():
@@ -41,6 +48,14 @@ def init_db():
             sent_at TEXT
         );
         """)
+    # На случай если clients уже существовала без этих колонок (старый деплой) —
+    # добавляем миграцией, без потери данных.
+    with get_conn() as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
+        if "tg_sent" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN tg_sent INTEGER DEFAULT 0")
+        if "tg_sent_at" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN tg_sent_at TEXT")
     # Загружаем clients.json если база клиентов пустая
     _seed_clients_from_json()
     # Загружаем subscribers.json если база подписчиков пустая (один раз)
@@ -128,6 +143,44 @@ def mark_subscriber_sent(email: str):
         conn.execute(
             "UPDATE subscribers SET sent=1, sent_at=? WHERE email=?",
             (datetime.now().isoformat(timespec="seconds"), email)
+        )
+
+
+# ─── TELEGRAM-РАССЫЛКА (клиенты с телефоном) ────────────────────
+def tg_broadcast_sent_count() -> int:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM clients WHERE tg_sent=1"
+        ).fetchone()[0]
+
+
+def tg_broadcast_sent_in_last_days(days: int) -> int:
+    """Сколько отправлено за последние N дней (скользящее окно, не календарная неделя) —
+    так рестарт посреди недели не сбрасывает лимит и не даёт его обойти."""
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM clients WHERE tg_sent=1 AND tg_sent_at >= ?",
+            (cutoff,)
+        ).fetchone()[0]
+
+
+def get_unsent_tg_clients(limit: int) -> list:
+    """Следующая пачка клиентов с телефоном, кому ещё не отправляли Telegram-рассылку."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT phone FROM clients WHERE tg_sent=0 AND phone IS NOT NULL AND phone != '' "
+            "ORDER BY phone ASC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
+def mark_tg_client_sent(phone: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE clients SET tg_sent=1, tg_sent_at=? WHERE phone=?",
+            (datetime.now().isoformat(timespec="seconds"), phone)
         )
 
 
