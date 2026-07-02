@@ -36,6 +36,9 @@ pending = {}
 
 
 # ─── УТИЛИТЫ ─────────────────────────────────────────────────────
+IMPORT_CHUNK_SIZE = 500  # Telegram режет запросы больше ~1МБ — шлём пачками
+
+
 async def import_known_contacts():
     clients = storage.all_clients()
     if not clients:
@@ -45,11 +48,23 @@ async def import_known_contacts():
                           first_name=c.get("name") or "Client", last_name="")
         for i, c in enumerate(clients)
     ]
-    try:
-        await client(ImportContactsRequest(contacts))
-        await logger.tg(f"Импортировано контактов: {len(contacts)}", "info")
-    except Exception as e:
-        await logger.error(e, "import_contacts")
+    imported = 0
+    for i in range(0, len(contacts), IMPORT_CHUNK_SIZE):
+        chunk = contacts[i:i + IMPORT_CHUNK_SIZE]
+        try:
+            await client(ImportContactsRequest(chunk))
+            imported += len(chunk)
+        except FloodWaitError as e:
+            await asyncio.sleep(e.seconds + 1)
+            try:
+                await client(ImportContactsRequest(chunk))
+                imported += len(chunk)
+            except Exception as e2:
+                await logger.error(e2, f"import_contacts chunk {i}")
+        except Exception as e:
+            await logger.error(e, f"import_contacts chunk {i}")
+        await asyncio.sleep(1)  # небольшая пауза между пачками, чтобы не словить FloodWait
+    await logger.tg(f"Импортировано контактов: {imported}/{len(contacts)}", "info")
 
 
 async def safe_send(chat_id, text: str):
@@ -302,6 +317,16 @@ async def handle_admin(event):
         mbc.stop_mail_broadcast()
         await event.respond("🛑 Останавливаю рассылку на почту (прогресс сохранён, продолжит с этого места)...")
 
+    elif text.startswith("/broadcaststatus"):
+        s = bc.get_status()
+        await event.respond(
+            f"📢 Telegram-рассылка\n"
+            f"Отправлено всего: {s['sent_total']}\n"
+            f"За последние 7 дней: {s['sent_this_week']}/{s['weekly_limit']}\n"
+            f"Осталось на эту неделю: {s['remaining_this_week']}\n"
+            f"Статус: {'идёт рассылка' if bc.is_running() else 'остановлена'}"
+        )
+
     elif text.startswith("/mailstatus"):
         stats = mbc.get_status()
         await event.respond(
@@ -321,8 +346,9 @@ async def handle_admin(event):
             "/unpause <user_id> — снять клиента с паузы\n"
             "/addclient <телефон> <Имя> — добавить клиента с анкетой\n"
             "/report — отправить еженедельный отчёт прямо сейчас\n"
-            "/broadcast [лимит] — рассылка в Telegram из Избранного\n"
+            "/broadcast [N] — рассылка в Telegram из Избранного (недельный лимит 1000, скользящее окно)\n"
             "/stopbroadcast — остановить Telegram-рассылку\n"
+            "/broadcaststatus — сколько отправлено / осталось на неделю\n"
             "/mailbroadcast [лимит/день] — рассылка на почту (продолжает с места остановки)\n"
             "/stopmailbroadcast — остановить почтовую рассылку\n"
             "/mailstatus — прогресс почтовой рассылки\n"
@@ -334,6 +360,7 @@ async def handle_admin(event):
 async def main():
     storage.init_db()
     await client.start()
+    await client.get_dialogs()  # прогреваем кэш сущностей — иначе логгер не найдёт REPORT_CHAT_ID
     logger.setup(client, REPORT_CHAT_ID)
     await import_known_contacts()
     asyncio.create_task(watchdog.run(client))
