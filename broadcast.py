@@ -57,12 +57,17 @@ async def run_broadcast(client, report_chat_id: int, admin_id: int, limit: int =
     3. Не превышаем недельный лимит (скользящее окно 7 дней)
     4. limit (если передан) — доп. потолок именно на этот запуск, для тестовых пачек
     """
-    saved = await client.get_messages("me", limit=1)
-    if not saved or not saved[0]:
-        await client.send_message(admin_id, "❌ Избранное пустое — сохрани туда пост с фото и текстом, потом повтори /broadcast")
+    # Смотрим последние несколько сообщений и пропускаем команды (/broadcast и т.п.) —
+    # если команда была написана прямо в Избранное, она сама становится последним
+    # сообщением, а нам нужен реальный пост под ней.
+    recent = await client.get_messages("me", limit=10)
+    post = next(
+        (m for m in recent if m and not (m.raw_text or "").strip().startswith("/")),
+        None
+    )
+    if not post:
+        await client.send_message(admin_id, "❌ Избранное пустое (или там только команды) — сохрани туда пост с фото и текстом, потом повтори /broadcast")
         return
-
-    post = saved[0]
 
     sent_this_week = storage.tg_broadcast_sent_in_last_days(WEEKLY_WINDOW_DAYS)
     remaining_week = max(0, WEEKLY_LIMIT - sent_this_week)
