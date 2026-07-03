@@ -1,4 +1,5 @@
 import os
+import socket
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -7,6 +8,19 @@ GMAIL = os.environ.get("GMAIL", "")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 LAWYER_EMAIL = os.environ.get("LAWYER_EMAIL", "")
 FROM_NAME = os.environ.get("MAIL_FROM_NAME", "Business Law Consulting")
+
+# Некоторые хостинги (Railway и др.) не имеют исходящего IPv6-маршрута,
+# а DNS для smtp.gmail.com отдаёт и AAAA (IPv6), и A (IPv4) записи.
+# smtplib/socket могут выбрать IPv6 первым — тогда получаем
+# "[Errno 101] Network is unreachable". Принудительно резолвим только IPv4.
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
+socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 
 def send_html_email(to_email: str, subject: str, html_body: str, text_body: str = "") -> bool:
