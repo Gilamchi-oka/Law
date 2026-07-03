@@ -35,14 +35,14 @@ async def run(client):
                 # Лёгкий пинг — получаем свой профиль
                 await client.get_me()
 
-            silent_for = time.time() - last_event
+            silent_for = time.time() - _last_event_time
 
-# 3 часа = 10800 секунд
-if silent_for >= 3 * 60 * 60:
-    await logger.tg(
-        f"⚠️ Нет входящих событий уже {int(silent_for // 3600)} ч. — бот молчит, проверь",
-        "warn"
-    )
+            # 3 часа = 10800 секунд
+            if silent_for >= 3 * 60 * 60:
+                await logger.tg(
+                    f"⚠️ Нет входящих событий уже {int(silent_for // 3600)} ч. — бот молчит, проверь",
+                    "warn"
+                )
 
         except Exception as e:
             await logger.error(e, "watchdog")
