@@ -99,6 +99,21 @@ def find_client_by_sender(sender) -> tuple:
     return phone, data
 
 
+# ─── КОМАНДЫ ИЗ ИЗБРАННОГО (Saved Messages) ──────────────────────
+# Если ADMIN_ID совпадает с аккаунтом, на который залогинен юзербот
+# (тот же номер), команды, написанные себе в Избранное, идут как
+# outgoing и не ловятся incoming=True хендлером ниже — обрабатываем
+# их отдельно.
+@client.on(events.NewMessage(outgoing=True))
+async def on_saved_message(event):
+    if not event.is_private:
+        return
+    me = await client.get_me()
+    if event.chat_id != me.id:
+        return  # это не Избранное, а обычная переписка от своего лица — игнор
+    await handle_admin(event)
+
+
 # ─── ГЛАВНЫЙ ОБРАБОТЧИК ──────────────────────────────────────────
 @client.on(events.NewMessage(incoming=True))
 async def on_message(event):
