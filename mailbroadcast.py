@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 import storage
 import logger
+import watchdog
 from mailer import send_html_email
 
 DEFAULT_DAILY_LIMIT = int(os.environ.get("MAIL_DAILY_LIMIT", "250"))
@@ -181,6 +182,8 @@ async def run_mail_broadcast(client, report_chat_id: int, admin_id: int, daily_l
                 break
             if not _in_working_hours():
                 break  # выходим во внешний цикл — там сработает _sleep_until_working_hours
+
+            watchdog.touch()  # рассылка тоже считается активностью, не даём watchdog ложно ругаться
 
             ok = send_html_email(email, SUBJECT, HTML_TEMPLATE, TEXT_TEMPLATE)
             if ok:
