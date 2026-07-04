@@ -20,6 +20,7 @@ import os
 
 import storage
 import logger
+import watchdog
 
 PAUSE_BETWEEN = float(os.environ.get("TG_PAUSE_SECONDS", "35"))   # секунд между отправками
 PAUSE_CHUNK = int(os.environ.get("TG_PAUSE_CHUNK", "10"))          # доп. пауза каждые N отправок
@@ -107,6 +108,8 @@ async def run_broadcast(client, report_chat_id: int, admin_id: int, limit: int =
             await logger.tg(f"🛑 Рассылка остановлена вручную. Отправлено в этом запуске: {sent}", "warn")
             await client.send_message(admin_id, f"🛑 Рассылка остановлена. Отправлено: {sent}/{total_batch}")
             return
+
+        watchdog.touch()  # рассылка тоже считается активностью, не даём watchdog ложно ругаться
 
         try:
             entity = await client.get_input_entity(f"+{phone}")
