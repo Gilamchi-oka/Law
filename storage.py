@@ -184,6 +184,25 @@ def mark_tg_client_sent(phone: str):
         )
 
 
+def mark_tg_client_failed(phone: str):
+    """Номер не резолвится в Telegram-пользователя (не зарегистрирован/невалиден).
+    Помечаем отдельным статусом (2), чтобы get_unsent_tg_clients() его больше
+    не выдавал — иначе рассылка каждый раз заново упирается в одни и те же
+    мёртвые номера в начале отсортированного списка и не продвигается дальше."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE clients SET tg_sent=2, tg_sent_at=? WHERE phone=?",
+            (datetime.now().isoformat(timespec="seconds"), phone)
+        )
+
+
+def tg_broadcast_failed_count() -> int:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM clients WHERE tg_sent=2"
+        ).fetchone()[0]
+
+
 # ─── КЛИЕНТЫ ────────────────────────────────────────────────────
 def normalize_phone(phone: str) -> str:
     return "".join(ch for ch in phone if ch.isdigit())
