@@ -5,8 +5,6 @@ import asyncio
 import logger
 
 PING_INTERVAL = 60   # секунд между проверками
-MAX_SILENT = 300     # секунд тишины после которых считаем что соединение мертво
-
 
 _last_event_time = 0
 
@@ -22,6 +20,7 @@ async def run(client):
     import time
     global _last_event_time
     _last_event_time = time.time()
+
     await logger.tg("✅ Userbot запущен", "info")
 
     while True:
@@ -34,16 +33,6 @@ async def run(client):
             else:
                 # Лёгкий пинг — получаем свой профиль
                 await client.get_me()
-
-            silent_for = time.time() - _last_event_time
-
-            # 3 часа = 10800 секунд
-            if silent_for >= 3 * 60 * 60:
-                await logger.tg(
-                    f"⚠️ Нет входящих событий уже {int(silent_for // 3600)} ч. — бот молчит, проверь",
-                    "warn"
-                )
-
         except Exception as e:
             await logger.error(e, "watchdog")
             try:
